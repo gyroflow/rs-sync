@@ -1,0 +1,13 @@
+[package]
+name = "rs-sync"
+version = "0.1.0"
+edition = "2021"
+authors = ["Vladimir Pinchuk"]
+
+[dependencies]
+libm = "0.2.2"
+argmin = "0.5.1"
+superslice = "1.0.0"
+nalgebra = "0.30"
+rayon = "1.5.3"
+rand = "0.8.5"
