@@ -19,7 +19,6 @@ impl NdSpline {
         for row in m.row_iter() {
             ret.splines.push(Spline::new(row.transpose().as_slice()))
         }
-        dbg!(ret.splines.len());
         ret
     }
     pub fn eval(&self, t: f64) -> Vector4<f64> {

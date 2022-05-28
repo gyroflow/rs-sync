@@ -197,7 +197,7 @@ impl SyncProblem {
                 let mut tmp = DVector::from_element(0, 0.0);
                 let cur_cost = fs.loss(x, &fs.motion_vec, &mut cur_delay_g, &mut tmp);
                 (cur_cost, cur_delay_g)
-            }).reduce_with(|a, b| (a.0 + b.0, a.1 + b.1)).unwrap()
+            }).reduce_with(|a, b| (a.0 + b.0, a.1 + b.1)).unwrap_or_default()
         });
 
         let simple_objective = |x: f64| -> f64 {
@@ -234,10 +234,16 @@ impl SyncProblem {
                         type Float = f64;
                     
                         fn apply(&self, x: &Self::Param) -> Result<Self::Output, Error> {
+                            if x.iter().any(|v| !v.is_finite()) {
+                                return Err(Error::msg("non-finite param"));
+                            }
                             Ok(self.fs.loss_single(self.gyro_delay, &DVector::from_column_slice(x)))
                         }
                     
                         fn gradient(&self, w: &Self::Param) -> Result<Self::Param, Error> {
+                            if w.iter().any(|v| !v.is_finite()) {
+                                return Err(Error::msg("non-finite param"));
+                            }
                             let mut del_jac = 0.0;
                             let mut grad = DVector::from_element(0, 0.0);
                             let _cost = self.fs.loss(self.gyro_delay, &DVector::from_column_slice(w), &mut del_jac, &mut grad);
@@ -246,18 +252,22 @@ impl SyncProblem {
                     }
     
                     let cost = OptimizedFunction { fs: &fs, gyro_delay };
-                    let linesearch = BacktrackingLineSearch::new(ArmijoCondition::new(1e-4).unwrap()).rho(0.9).unwrap();
+                    let linesearch = BacktrackingLineSearch::new(ArmijoCondition::new(1e-4).unwrap()).rho(0.5).unwrap();
     
                     let solver = LBFGS::new(linesearch, 10)
                         .with_tol_grad(1e-4);
     
-                    let res = Executor::new(cost, solver, fs.motion_vec.as_slice().to_vec())
+                    if let Ok(res) = Executor::new(cost, solver, fs.motion_vec.as_slice().to_vec())
                         .max_iters(200)
-                        .run().unwrap();
+                        .run()
+                        {
     
-                    //dbg!(&res.state().best_param);
-                    //dbg!(&res.state().best_cost);
-                    fs.motion_vec = DVector::from_column_slice(&res.state().best_param);
+                            //dbg!(&res.state().best_param);
+                            //dbg!(&res.state().best_cost);
+                            fs.motion_vec = DVector::from_column_slice(&res.state().best_param);
+                        } else {
+                            eprintln!("lbgfs error");
+                        }
                 });
             }
 
@@ -373,7 +383,6 @@ pub fn opt_guess_translational_motion(problem: &MatrixXx3<f64>, max_iters: i32) 
     best_sol
 }
 
-
 pub fn pre_sync(opt_data: &OptData, frame_begin: i32, frame_end: i32, rough_delay: f64, search_radius: f64, step: f64) -> (f64, f64) {
     let mut results = Vec::new();
     let mut frames = Vec::new();
@@ -401,7 +410,7 @@ pub fn pre_sync(opt_data: &OptData, frame_begin: i32, frame_end: i32, rough_dela
 
         delay += step;
     }
-    results.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+    results.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
     results[0]
 }
 
