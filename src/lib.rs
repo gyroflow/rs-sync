@@ -311,9 +311,8 @@ impl SyncProblem {
                 let m = opt_guess_translational_motion(&p, 20);
                 let k = 1.0 / (&p * &m).norm() * 1e2;
                 let r = (&p * &m) * (k / m.norm());
-                let rho = r.map(|v| libm::log1p(v * v));
-                rho.sum()
-                // sqrt(arma::accu(arma::sqrt(rho)));
+                let rho = r.map(|v| libm::log1p(v * v).sqrt());
+                rho.sum().sqrt()
             }).sum();
             delays[i] = delay;
             costs[i] = cost;
@@ -401,10 +400,9 @@ pub fn pre_sync(opt_data: &OptData, frame_begin: i32, frame_end: i32, rough_dela
             // panic_to_file("pre-sync: non-finite k", !std::isfinite(k));
             let r = (&p * &m) * (k / m.norm());
             // panic_to_file("pre-sync: non-finite r", !r.is_finite());
-            let rho = r.map(|v| libm::log1p(v * v));
+            let rho = r.map(|v| libm::log1p(v * v).sqrt());
             // panic_to_file("pre-sync: non-finite rho", !rho.is_finite());
-            rho.sum()
-            //sqrt(arma::accu(arma::sqrt(rho))); // sqrt not needed
+            rho.sum().sqrt()
         }).sum();
         results.push((cost, delay));
 
