@@ -47,4 +47,7 @@ impl NdSpline {
         let norm = value.norm();
         (quat_prod(&quat_conj(value), &self.deriv(t))) / (norm * norm) * 2.0
     }
+    pub fn is_empty(&self) -> bool {
+        self.splines.is_empty()
+    }
 }

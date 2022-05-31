@@ -31,14 +31,13 @@ pub struct OptData {
     sample_rate: f64,
     quats: NdSpline,
 
-    // fps: f64,
-    frame_data: BTreeMap<i32, FrameData>
+    frame_data: BTreeMap<i64, FrameData>
 }
 
 const NUMERIC_DIFF_STEP: f64 = 1e-6;
 
 pub struct FrameState<'a> {
-    frame: i32,
+    timestamp_us: i64,
     problem: &'a OptData,
 
     motion_vec: DVector<f64>,
@@ -46,9 +45,9 @@ pub struct FrameState<'a> {
 }
 
 impl<'a> FrameState<'a> {
-    pub fn new(frame: i32, problem: &'a OptData) -> Self {
+    pub fn new(timestamp_us: i64, problem: &'a OptData) -> Self {
         Self {
-            frame: frame,
+            timestamp_us,
             problem,
             motion_vec: DVector::from_element(3, 0.0),
             var_k: 1e3
@@ -56,7 +55,7 @@ impl<'a> FrameState<'a> {
     }
 
     pub fn loss(&self, gyro_delay: f64, motion_estimate: &DVector<f64>, jac_gyro_delay: &mut f64, jac_motion_estimate: &mut DVector<f64>) -> f64 {
-        let p = opt_compute_problem(self.frame, gyro_delay, &self.problem);
+        let p = opt_compute_problem(self.timestamp_us, gyro_delay, &self.problem);
 
         let loss_l = self.loss_single(gyro_delay - NUMERIC_DIFF_STEP, motion_estimate);
         let loss_r = self.loss_single(gyro_delay + NUMERIC_DIFF_STEP, motion_estimate);
@@ -80,19 +79,19 @@ impl<'a> FrameState<'a> {
     }
 
     pub fn loss_single(&self, gyro_delay: f64, motion_estimate: &DVector<f64>) -> f64 {
-        let p = opt_compute_problem(self.frame, gyro_delay, &self.problem);
+        let p = opt_compute_problem(self.timestamp_us, gyro_delay, &self.problem);
         let r = (p * motion_estimate) * (self.var_k / motion_estimate.norm());
         let rho = r.map(|v| libm::log1p(v * v));
         rho.sum()
     }
 
     pub fn guess_motion(&self, gyro_delay: f64) -> DVector<f64> {
-        let p = opt_compute_problem(self.frame, gyro_delay, &self.problem);
+        let p = opt_compute_problem(self.timestamp_us, gyro_delay, &self.problem);
         opt_guess_translational_motion(&p, 200)
     }
 
     pub fn guess_k(&self, gyro_delay: f64) -> f64 {
-        let p = opt_compute_problem(self.frame, gyro_delay, &self.problem);
+        let p = opt_compute_problem(self.timestamp_us, gyro_delay, &self.problem);
         assert!(p.nrows() > 0);
         assert!(self.motion_vec.nrows() == 3);
         1.0 / (p * &self.motion_vec).norm() * 1e2
@@ -116,6 +115,11 @@ impl SyncProblem {
     }
 
     pub fn set_gyro_quaternions(&mut self, timestamps_us: &[i64], quats: &[(f64, f64, f64, f64)]) {
+        if timestamps_us.is_empty() {
+            log::error!("Empty timestamps! quats.len: {}", quats.len());
+            return;
+        }
+
         const UHZ_IN_HZ: i64 = 1000000;
         const US_IN_SEC: i64 = 1000000;
         let count = timestamps_us.len();
@@ -150,6 +154,10 @@ impl SyncProblem {
             }
             // panic_to_file("set-gyro-quaternions: non-finite sample after interpolation", !new_quats.col(i).is_finite());
         }
+        if new_timestamps_vec.is_empty() {
+            log::error!("Invalid new timestamps: first: {}, last: {}, len: {}", timestamps_us[0], timestamps_us[count - 1], count);
+            return;
+        }
         self.problem.sample_rate = 1.0 * rounded_sr as f64 / UHZ_IN_HZ as f64;
         self.problem.quats_start = 1.0 * new_timestamps_vec[0] as f64 / US_IN_SEC as f64;
         // panic_to_file("set-gyro-quaternions: non-finite sample rate. wtf?", !std::isfinite(problem.sample_rate));
@@ -157,11 +165,11 @@ impl SyncProblem {
         self.problem.quats = NdSpline::make(&new_quats);
     }
 
-    pub fn set_track_result(&mut self, frame: i32, ts_a: &[f64], ts_b: &[f64], rays_a: &[(f64, f64, f64)], rays_b: &[(f64, f64, f64)]) {
+    pub fn set_track_result(&mut self, timestamp_us: i64, ts_a: &[f64], ts_b: &[f64], rays_a: &[(f64, f64, f64)], rays_b: &[(f64, f64, f64)]) {
         assert!(ts_a.len() == ts_b.len());
         assert!(rays_a.len() == rays_b.len());
 
-        self.problem.frame_data.insert(frame, FrameData {
+        self.problem.frame_data.insert(timestamp_us, FrameData {
             rays_a:  rays_a.iter().map(|&(x, y, z)| Vector3::new(x, y, z)).collect(),
             rays_b:  rays_b.iter().map(|&(x, y, z)| Vector3::new(x, y, z)).collect(),
             ts_a:    DVector::from_row_slice(ts_a),
@@ -173,15 +181,23 @@ impl SyncProblem {
         // panic_to_file("set-track-result: non-finite numbers in ts_b", !flow.ts_b.is_finite());
     }
 
-    pub fn pre_sync(&self, initial_delay: f64, frame_begin: i32, frame_end: i32, search_step: f64, search_radius: f64) -> (f64, f64) {
-        pre_sync(&self.problem, frame_begin, frame_end, initial_delay, search_radius, search_step)
+    pub fn pre_sync(&self, initial_delay: f64, ts_from: i64, ts_to: i64, search_step: f64, search_radius: f64) -> (f64, f64) {
+        if self.problem.quats.is_empty() {
+            log::error!("Empty quats!");
+            return (0.0, 0.0);
+        }
+        pre_sync(&self.problem, ts_from, ts_to, initial_delay, search_radius, search_step)
     }
 
-    pub fn sync(&self, initial_delay: f64, frame_begin: i32, frame_end: i32) -> (f64, f64) {
+    pub fn sync(&self, initial_delay: f64, ts_from: i64, ts_to: i64) -> (f64, f64) {
+        if self.problem.quats.is_empty() {
+            log::error!("Empty quats!");
+            return (0.0, 0.0);
+        }
         let mut gyro_delay = initial_delay;
 
-        let costs: Vec<FrameState> = self.problem.frame_data.range(frame_begin..frame_end).map(|(frame, _)| {
-            let mut cost = FrameState::new(*frame, &self.problem);
+        let costs: Vec<FrameState> = self.problem.frame_data.range(ts_from..ts_to).map(|(ts, _)| {
+            let mut cost = FrameState::new(*ts, &self.problem);
             cost.motion_vec = cost.guess_motion(gyro_delay);
             cost.var_k = cost.guess_k(gyro_delay);
             cost
@@ -257,17 +273,19 @@ impl SyncProblem {
                     let solver = LBFGS::new(linesearch, 10)
                         .with_tol_grad(1e-4);
     
-                    if let Ok(res) = Executor::new(cost, solver, fs.motion_vec.as_slice().to_vec())
-                        .max_iters(200)
-                        .run()
-                        {
-    
-                            //dbg!(&res.state().best_param);
-                            //dbg!(&res.state().best_cost);
+                    let executor = Executor::new(cost, solver, fs.motion_vec.as_slice().to_vec())
+                        .max_iters(200);
+
+                    match executor.run() {
+                        Ok(res) => {
+                            // dbg!(&res.state().best_param);
+                            // dbg!(&res.state().best_cost);
                             fs.motion_vec = DVector::from_column_slice(&res.state().best_param);
-                        } else {
-                            eprintln!("lbgfs error");
+                        },
+                        Err(e) => {
+                            log::error!("LBFGS error: {:?}", e);
                         }
+                    }
                 });
             }
 
@@ -297,17 +315,14 @@ impl SyncProblem {
         (simple_objective(gyro_delay), gyro_delay)
     }
 
-    pub fn debug_pre_sync(&self, initial_delay: f64, frame_begin: i32, frame_end: i32, search_radius: f64, delays: &mut [f64], costs: &mut [f64], point_count: usize) {
-        let mut frames = Vec::new();
-        for (&frame, _) in &self.problem.frame_data {
-            if frame < frame_begin || frame >= frame_end { continue; }
-            frames.push(frame);
-        }
+    pub fn debug_pre_sync(&self, initial_delay: f64, ts_from: i64, ts_to: i64, search_radius: f64, delays: &mut [f64], costs: &mut [f64], point_count: usize) {
+        let timestamps: Vec<i64> = self.problem.frame_data.range(ts_from..ts_to).map(|(k, _)| *k).collect();
+
         for i in 0..point_count {
             let delay = initial_delay - search_radius + 2.0 * search_radius * i as f64 / (point_count as f64 - 1.0);
             
-            let cost: f64 = frames.par_iter().map(|frame| {
-                let p = opt_compute_problem(*frame, delay, &self.problem);
+            let cost: f64 = timestamps.par_iter().map(|ts| {
+                let p = opt_compute_problem(*ts, delay, &self.problem);
                 let m = opt_guess_translational_motion(&p, 20);
                 let k = 1.0 / (&p * &m).norm() * 1e2;
                 let r = (&p * &m) * (k / m.norm());
@@ -321,8 +336,8 @@ impl SyncProblem {
 }
 
 
-pub fn opt_compute_problem(frame: i32, gyro_delay: f64, data: &OptData) -> MatrixXx3<f64> {
-    if let Some(flow) = data.frame_data.get(&frame) {
+pub fn opt_compute_problem(timestamp_us: i64, gyro_delay: f64, data: &OptData) -> MatrixXx3<f64> {
+    if let Some(flow) = data.frame_data.get(&timestamp_us) {
         let ap = &flow.rays_a;
         let bp = &flow.rays_b;
         let at = flow.ts_a.map(|v| (v - data.quats_start + gyro_delay) * data.sample_rate);
@@ -340,7 +355,7 @@ pub fn opt_compute_problem(frame: i32, gyro_delay: f64, data: &OptData) -> Matri
 
         problem
     } else {
-        println!("frame not found {frame}: keys: {:?}", data.frame_data.keys());
+        println!("frame not found {timestamp_us}: keys: {:?}", data.frame_data.keys());
         MatrixXx3::from_element(1, 0.0)
     }
 }
@@ -382,17 +397,14 @@ pub fn opt_guess_translational_motion(problem: &MatrixXx3<f64>, max_iters: i32) 
     best_sol
 }
 
-pub fn pre_sync(opt_data: &OptData, frame_begin: i32, frame_end: i32, rough_delay: f64, search_radius: f64, step: f64) -> (f64, f64) {
+pub fn pre_sync(opt_data: &OptData, ts_from: i64, ts_to: i64, rough_delay: f64, search_radius: f64, step: f64) -> (f64, f64) {
     let mut results = Vec::new();
-    let mut frames = Vec::new();
-    for (&frame, _) in &opt_data.frame_data {
-        if frame < frame_begin || frame >= frame_end { continue; }
-        frames.push(frame);
-    }
+    let timestamps: Vec<i64> = opt_data.frame_data.range(ts_from..ts_to).map(|(k, _)| *k).collect();
+
     let mut delay = rough_delay - search_radius;
     while delay < rough_delay + search_radius {
-        let cost: f64 = frames.par_iter().map(|frame| {
-            let p = opt_compute_problem(*frame, delay, opt_data);
+        let cost: f64 = timestamps.par_iter().map(|ts| {
+            let p = opt_compute_problem(*ts, delay, opt_data);
             // panic_to_file("pre-sync: non-finite numbers in P", !P.is_finite());
             let m = opt_guess_translational_motion(&p, 20);
             // panic_to_file("pre-sync: non-finite numbers in M", !M.is_finite());
@@ -411,4 +423,3 @@ pub fn pre_sync(opt_data: &OptData, frame_begin: i32, frame_end: i32, rough_dela
     results.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
     results[0]
 }
-
