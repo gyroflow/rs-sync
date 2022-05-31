@@ -1,0 +1,15 @@
+[package]
+name = "rstest"
+version = "0.1.0"
+edition = "2021"
+build = "build.rs"
+
+[dependencies]
+rs-sync = { path = "../../" }
+bincode = "*"
+serde = "*"
+cpp = "*"
+walkdir = "*"
+
+[build-dependencies]
+cpp_build = "*"
