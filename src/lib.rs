@@ -94,7 +94,7 @@ impl<'a> FrameState<'a> {
         let p = opt_compute_problem(self.timestamp_us, gyro_delay, &self.problem);
         assert!(p.nrows() > 0);
         assert!(self.motion_vec.nrows() == 3);
-        1.0 / (p * &self.motion_vec).norm() * 1e2
+        clamp_k(1.0 / (p * &self.motion_vec).norm() * 1e2)
     }
 
 }
@@ -324,7 +324,7 @@ impl SyncProblem {
             let cost: f64 = timestamps.par_iter().map(|ts| {
                 let p = opt_compute_problem(*ts, delay, &self.problem);
                 let m = opt_guess_translational_motion(&p, 20);
-                let k = 1.0 / (&p * &m).norm() * 1e2;
+                let k = clamp_k(1.0 / (&p * &m).norm() * 1e2);
                 let r = (&p * &m) * (k / m.norm());
                 let rho = r.map(|v| libm::log1p(v * v).sqrt());
                 rho.sum().sqrt()
@@ -408,7 +408,7 @@ pub fn pre_sync(opt_data: &OptData, ts_from: i64, ts_to: i64, rough_delay: f64, 
             // panic_to_file("pre-sync: non-finite numbers in P", !P.is_finite());
             let m = opt_guess_translational_motion(&p, 20);
             // panic_to_file("pre-sync: non-finite numbers in M", !M.is_finite());
-            let k = 1.0 / (&p * &m).norm() * 1e2;
+            let k = clamp_k(1.0 / (&p * &m).norm() * 1e2);
             // panic_to_file("pre-sync: non-finite k", !std::isfinite(k));
             let r = (&p * &m) * (k / m.norm());
             // panic_to_file("pre-sync: non-finite r", !r.is_finite());

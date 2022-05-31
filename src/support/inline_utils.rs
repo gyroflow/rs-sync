@@ -48,3 +48,7 @@ pub fn mul_const_jac(x: &DMatrix<f64>, y: f64) -> (DMatrix<f64>, DMatrix<f64>) {
     let dx = DMatrix::identity(x.nrows(), x.nrows());
     (x * y, dx * y)
 }
+
+pub fn clamp_k(k : f64) -> f64 {
+    k.clamp(1e1, 1e3)
+}
