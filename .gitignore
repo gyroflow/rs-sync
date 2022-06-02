@@ -1,3 +1,4 @@
 /target
+/__dev/rstest/target
 /Cargo.lock
 /__dev/cpp
