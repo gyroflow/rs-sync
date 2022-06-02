@@ -125,12 +125,12 @@ impl SyncProblem {
         let count = timestamps_us.len();
 
         let actual_sr_uhz = UHZ_IN_HZ * US_IN_SEC * count as i64 / (timestamps_us[count - 1] - timestamps_us[0]);
-        let rounded_sr = ((actual_sr_uhz as f64 / 50.0 / UHZ_IN_HZ as f64).round() * 50.0 * UHZ_IN_HZ as f64) as i64;  // round to nearest 50hz
+        let rounded_sr_hz = ((actual_sr_uhz as f64 / 50.0 / UHZ_IN_HZ as f64).round() * 50.0) as i64;  // round to nearest 50hz
 
         let mut new_timestamps_vec = Vec::new();
-        let mut sample = timestamps_us[0] * rounded_sr;
-        while US_IN_SEC * UHZ_IN_HZ * sample / rounded_sr < timestamps_us[count - 1] {
-            new_timestamps_vec.push(US_IN_SEC * UHZ_IN_HZ * sample / rounded_sr);
+        let mut sample = timestamps_us[0] * rounded_sr_hz / US_IN_SEC;
+        while US_IN_SEC * sample / rounded_sr_hz < timestamps_us[count - 1] {
+            new_timestamps_vec.push(US_IN_SEC * sample / rounded_sr_hz);
             sample += 1;
         }
 
@@ -158,7 +158,7 @@ impl SyncProblem {
             log::error!("Invalid new timestamps: first: {}, last: {}, len: {}", timestamps_us[0], timestamps_us[count - 1], count);
             return;
         }
-        self.problem.sample_rate = 1.0 * rounded_sr as f64 / UHZ_IN_HZ as f64;
+        self.problem.sample_rate = 1.0 * rounded_sr_hz as f64;
         self.problem.quats_start = 1.0 * new_timestamps_vec[0] as f64 / US_IN_SEC as f64;
         // panic_to_file("set-gyro-quaternions: non-finite sample rate. wtf?", !std::isfinite(problem.sample_rate));
         // panic_to_file("set-gyro-quaternions: non-finite first timestamp. wtf?", !std::isfinite(problem.quats_start));
