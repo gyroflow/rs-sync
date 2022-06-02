@@ -27,7 +27,7 @@ fn main() {
             let mut delay = sync.pre_sync(d.initial_delay / 1000.0, d.from_ts, d.to_ts, d.presync_step / 1000.0, d.presync_radius / 1000.0);
             println!("cpp pre_sync: {:.4}", delay.1 * 1000.0);
             for _ in 0..4 {
-                delay = sync.sync(delay.1, d.from_ts, d.to_ts);
+                delay = sync.sync(delay.1, d.from_ts, d.to_ts, d.initial_delay / 1000.0, d.presync_radius / 1000.0);
             }
             println!("cpp offset: {:.4}", delay.1 * 1000.0);
         }
@@ -44,7 +44,7 @@ fn main() {
             let mut delay = sync.pre_sync(d.initial_delay / 1000.0, d.from_ts, d.to_ts, d.presync_step / 1000.0, d.presync_radius / 1000.0);
             println!("rust pre_sync: {:.4}", delay.1 * 1000.0);
             for _ in 0..4 {
-                delay = sync.sync(delay.1, d.from_ts, d.to_ts);
+                delay = sync.sync(delay.1, d.from_ts, d.to_ts, d.initial_delay / 1000.0, d.presync_radius / 1000.0);
             }
             println!("rust offset: {:.4}", delay.1 * 1000.0);
         }

@@ -189,7 +189,7 @@ impl SyncProblem {
         pre_sync(&self.problem, ts_from, ts_to, initial_delay, search_radius, search_step)
     }
 
-    pub fn sync(&self, initial_delay: f64, ts_from: i64, ts_to: i64) -> (f64, f64) {
+    pub fn sync(&self, initial_delay: f64, ts_from: i64, ts_to: i64, search_center: f64, search_radius: f64) -> (f64, f64) {
         if self.problem.quats.is_empty() {
             log::error!("Empty quats!");
             return (0.0, 0.0);
@@ -309,6 +309,9 @@ impl SyncProblem {
                 break;
             }
 
+            if (gyro_delay - search_center).abs() > search_radius {
+                break;
+            }
             // eprintln!("{} {}", gyro_delay, info.step_size);
         }
 

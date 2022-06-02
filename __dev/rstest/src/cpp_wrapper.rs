@@ -59,9 +59,9 @@ impl SyncProblemWrapper {
         })
     }
 
-    pub fn sync(&self, initial_delay: f64, ts_from: i64, ts_to: i64) -> (f64, f64) {
-        cpp!(unsafe [self as "SyncProblemWrapper *", ts_from as "int64_t", ts_to as "int64_t", initial_delay as "double"] -> (f64, f64) as "std::pair<double, double>" {
-            return self->inner->Sync(initial_delay, ts_from, ts_to);
+    pub fn sync(&self, initial_delay: f64, ts_from: i64, ts_to: i64, sync_center: f64, sync_radius: f64) -> (f64, f64) {
+        cpp!(unsafe [self as "SyncProblemWrapper *", ts_from as "int64_t", ts_to as "int64_t", initial_delay as "double", sync_center as "double", sync_radius as "double"] -> (f64, f64) as "std::pair<double, double>" {
+            return self->inner->Sync(initial_delay, ts_from, ts_to, sync_center, sync_radius);
         })
     }
 
