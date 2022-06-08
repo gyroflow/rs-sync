@@ -99,13 +99,16 @@ impl<'a> FrameState<'a> {
 
 }
 
-pub struct SyncProblem {
-    problem: OptData
+#[derive(Default)]
+pub struct SyncProblem<'a> {
+    problem: OptData,
+    progress_cb: Option<Box<dyn Fn(f64) -> bool + Sync + 'a>>
 }
 
-impl SyncProblem {
-    pub fn new() -> Self {
-        Self { problem: OptData::default() }
+impl<'a> SyncProblem<'a> {
+    pub fn new() -> Self { Self::default() }
+    pub fn on_progress<F: Fn(f64) -> bool + Sync + 'a>(&mut self, cb: F) {
+        self.progress_cb = Some(Box::new(cb));
     }
     pub fn set_gyro_quaternions_fixed(&mut self, data: &[(f64, f64, f64, f64)], sample_rate: f64, first_timestamp: f64) {
         let flat_data = data.into_iter().flat_map(|x| [x.0, x.1, x.2, x.3]).collect::<Vec<f64>>();
@@ -127,6 +130,11 @@ impl SyncProblem {
         let actual_sr_uhz = UHZ_IN_HZ * US_IN_SEC * count as i64 / (timestamps_us[count - 1] - timestamps_us[0]);
         let rounded_sr_hz = ((actual_sr_uhz as f64 / 50.0 / UHZ_IN_HZ as f64).round() * 50.0) as i64;  // round to nearest 50hz
 
+        if rounded_sr_hz <= 0 {
+            log::error!("Invalid sample rate, count: {}, ts diff: {}", count, (timestamps_us[count - 1] - timestamps_us[0]));
+            return;
+        }
+
         let mut new_timestamps_vec = Vec::new();
         let mut sample = timestamps_us[0] * rounded_sr_hz / US_IN_SEC;
         while US_IN_SEC * sample / rounded_sr_hz < timestamps_us[count - 1] {
@@ -136,7 +144,7 @@ impl SyncProblem {
 
         for i in 1..count {
             if timestamps_us[i - 1] > timestamps_us[i] {
-                panic!("set-gyro-quaternions: timestamps out of order at pos {i} ({} > {})", timestamps_us[i - 1], timestamps_us[i]);
+                log::error!("timestamps out of order at pos {i} ({} > {})", timestamps_us[i - 1], timestamps_us[i]);
             }
         }
 
@@ -181,18 +189,46 @@ impl SyncProblem {
         // panic_to_file("set-track-result: non-finite numbers in ts_b", !flow.ts_b.is_finite());
     }
 
-    pub fn pre_sync(&self, initial_delay: f64, ts_from: i64, ts_to: i64, search_step: f64, search_radius: f64) -> (f64, f64) {
-        if self.problem.quats.is_empty() {
-            log::error!("Empty quats!");
-            return (0.0, 0.0);
+    pub fn pre_sync(&self, rough_delay: f64, ts_from: i64, ts_to: i64, search_step: f64, search_radius: f64) -> Option<(f64, f64)> {
+        if self.problem.quats.is_empty() || search_step <= 0.0 || search_radius <= 0.0 {
+            log::error!("Invalid params! quats.is_empty: {}, search_step: {search_step}, search_radius: {search_radius}", self.problem.quats.is_empty());
+            return None;
         }
-        pre_sync(&self.problem, ts_from, ts_to, initial_delay, search_radius, search_step)
+        let mut results = Vec::new();
+
+        let timestamps: Vec<i64> = self.problem.frame_data.range(ts_from..ts_to).map(|(k, _)| *k).collect();
+    
+        let delays_len = (search_radius * 2.0) / search_step;
+        let mut counter = 0.0;
+
+        let mut delay = rough_delay - search_radius;
+        while delay < rough_delay + search_radius {
+            let cost: f64 = timestamps.par_iter().map(|ts| {
+                let p = opt_compute_problem(*ts, delay, &self.problem);
+                let m = opt_guess_translational_motion(&p, 20);
+                let k = clamp_k(1.0 / (&p * &m).norm() * 1e2);
+                let r = (&p * &m) * (k / m.norm());
+                let rho = r.map(|v| libm::log1p(v * v).sqrt());
+                rho.sum().sqrt()
+            }).sum();
+            results.push((cost, delay));
+            delay += search_step;
+
+            if let Some(ref cb) = self.progress_cb {
+                if !cb((counter / delays_len) * 0.5) {
+                    return None;
+                }
+            }
+            counter += 1.0;
+        }
+        results.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+        Some(results[0])
     }
 
-    pub fn sync(&self, initial_delay: f64, ts_from: i64, ts_to: i64, search_center: f64, search_radius: f64) -> (f64, f64) {
+    pub fn sync(&self, initial_delay: f64, ts_from: i64, ts_to: i64, search_center: f64, search_radius: f64) -> Option<(f64, f64)> {
         if self.problem.quats.is_empty() {
             log::error!("Empty quats!");
-            return (0.0, 0.0);
+            return None;
         }
         let mut gyro_delay = initial_delay;
 
@@ -315,7 +351,28 @@ impl SyncProblem {
             // eprintln!("{} {}", gyro_delay, info.step_size);
         }
 
-        (simple_objective(gyro_delay), gyro_delay)
+        Some((simple_objective(gyro_delay), gyro_delay))
+    }
+
+    pub fn full_sync(&self, initial_delay: f64, ts_from: i64, ts_to: i64, search_step: f64, search_radius: f64, iterations: usize) -> Option<(f64, f64)> {
+        if let Some(mut delay) = self.pre_sync(initial_delay, ts_from, ts_to, search_step, search_radius) {
+            for i in 0..iterations {
+                if let Some(ref cb) = self.progress_cb {
+                    if !cb(0.5 + (i as f64 / iterations as f64) * 0.5) {
+                        return None;
+                    }
+                }
+                if let Some(d) = self.sync(delay.1, ts_from, ts_to, initial_delay, search_radius) {
+                    delay = d;
+                }
+            }
+            if let Some(ref cb) = self.progress_cb {
+                cb(1.0);
+            }
+            Some(delay)
+        } else {
+            None
+        }
     }
 
     pub fn debug_pre_sync(&self, initial_delay: f64, ts_from: i64, ts_to: i64, search_radius: f64, delays: &mut [f64], costs: &mut [f64], point_count: usize) {
@@ -398,31 +455,4 @@ pub fn opt_guess_translational_motion(problem: &MatrixXx3<f64>, max_iters: i32) 
         }
     }
     best_sol
-}
-
-pub fn pre_sync(opt_data: &OptData, ts_from: i64, ts_to: i64, rough_delay: f64, search_radius: f64, step: f64) -> (f64, f64) {
-    let mut results = Vec::new();
-    let timestamps: Vec<i64> = opt_data.frame_data.range(ts_from..ts_to).map(|(k, _)| *k).collect();
-
-    let mut delay = rough_delay - search_radius;
-    while delay < rough_delay + search_radius {
-        let cost: f64 = timestamps.par_iter().map(|ts| {
-            let p = opt_compute_problem(*ts, delay, opt_data);
-            // panic_to_file("pre-sync: non-finite numbers in P", !P.is_finite());
-            let m = opt_guess_translational_motion(&p, 20);
-            // panic_to_file("pre-sync: non-finite numbers in M", !M.is_finite());
-            let k = clamp_k(1.0 / (&p * &m).norm() * 1e2);
-            // panic_to_file("pre-sync: non-finite k", !std::isfinite(k));
-            let r = (&p * &m) * (k / m.norm());
-            // panic_to_file("pre-sync: non-finite r", !r.is_finite());
-            let rho = r.map(|v| libm::log1p(v * v).sqrt());
-            // panic_to_file("pre-sync: non-finite rho", !rho.is_finite());
-            rho.sum().sqrt()
-        }).sum();
-        results.push((cost, delay));
-
-        delay += step;
-    }
-    results.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
-    results[0]
 }
