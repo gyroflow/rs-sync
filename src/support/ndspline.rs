@@ -24,14 +24,18 @@ impl NdSpline {
     pub fn eval(&self, t: f64) -> Vector4<f64> {
         let mut ret = Vector4::from_element(0.0);
         for (i, sp) in self.splines.iter().enumerate() {
-            ret[i] = sp.call(t);
+            if let Some(val) = sp.eval(t) {
+                ret[i] = val;
+            }
         }
         ret
     }
     pub fn deriv(&self, t: f64) -> Vector4<f64> {
         let mut ret = Vector4::from_element(0.0);
         for (i, sp) in self.splines.iter().enumerate() {
-            ret[i] = sp.deriv(t);
+            if let Some(val) = sp.deriv(t) {
+                ret[i] = val;
+            }
         }
         ret
     }

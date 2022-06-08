@@ -22,6 +22,7 @@ impl Spline {
     }
     fn set_points(&mut self, y: &[f64]) {
         let n = y.len();
+        if n == 0 { return; }
         
         let mut a = MatrixXx3::<f64>::from_element(n, 0.0);
         self.m_c.resize(n, 0.0);
@@ -68,20 +69,20 @@ impl Spline {
         self.m_y = y.to_vec();
     }
 
-    pub fn call(&self, x: f64) -> f64 {
+    pub fn eval(&self, x: f64) -> Option<f64> {
         let idx = x.floor().min(self.m_b.len() as f64).max(0.0) as usize;
         let n = self.m_b.len();
         let h = x - idx as f64;
-        if x < idx as f64 { return (self.m_c[0] * h + self.m_b[0]) * h + self.m_y[0]; }
-        if x > n as f64 - 1.0 { return (self.m_c[n - 1] * h + self.m_b[n - 1]) * h + self.m_y[n - 1]; }
-        ((self.m_d[idx] * h + self.m_c[idx]) * h + self.m_b[idx]) * h + self.m_y[idx]
+        if x < idx as f64 { return Some((self.m_c.get(0)? * h + self.m_b.get(0)?) * h + self.m_y.get(0)?); }
+        if x > n as f64 - 1.0 { return Some((self.m_c.get(n - 1)? * h + self.m_b.get(n - 1)?) * h + self.m_y.get(n - 1)?); }
+        Some(((self.m_d.get(idx)? * h + self.m_c.get(idx)?) * h + self.m_b.get(idx)?) * h + self.m_y.get(idx)?)
     }
-    pub fn deriv(&self, x: f64) -> f64 {
+    pub fn deriv(&self, x: f64) -> Option<f64> {
         let idx = x.floor().min(self.m_b.len() as f64).max(0.0) as usize;
         let n = self.m_b.len();
         let h = x - idx as f64;
-        if x < 0.0 { return 2.0 * self.m_c[0] * h + self.m_b[0]; }
-        if x > n as f64 - 1.0 { return 2.0 * self.m_c[n - 1] * h + self.m_b[n - 1]; }
-        (3.0 * self.m_d[idx] * h + 2.0 * self.m_c[idx]) * h + self.m_b[idx]
+        if x < 0.0 { return Some(2.0 * self.m_c.get(0)? * h + self.m_b.get(0)?); }
+        if x > n as f64 - 1.0 { return Some(2.0 * self.m_c.get(n - 1)? * h + self.m_b.get(n - 1)?); }
+        Some((3.0 * self.m_d.get(idx)? * h + 2.0 * self.m_c.get(idx)?) * h + self.m_b.get(idx)?)
     }
 }
