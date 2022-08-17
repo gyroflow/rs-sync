@@ -13,7 +13,7 @@ use support::{ backtrack::*, ndspline::*, quat::*, inline_utils::* };
 
 use nalgebra::*;
 use superslice::*;
-use argmin::{ prelude::*, solver::linesearch::*, solver::quasinewton::LBFGS };
+use argmin::{ core::{ Gradient, CostFunction, Executor, Error }, solver::linesearch::*, solver::linesearch::condition::ArmijoCondition, solver::quasinewton::LBFGS };
 use std::collections::BTreeMap;
 use std::cell::RefCell;
 use rayon::iter::*;
@@ -197,7 +197,7 @@ impl<'a> SyncProblem<'a> {
         let mut results = Vec::new();
 
         let timestamps: Vec<i64> = self.problem.frame_data.range(ts_from..ts_to).map(|(k, _)| *k).collect();
-    
+
         let delays_len = (search_radius * 2.0) / search_step;
         let mut counter = 0.0;
 
@@ -277,21 +277,11 @@ impl<'a> SyncProblem<'a> {
                         fs: &'a FrameState<'a>,
                         gyro_delay: f64,
                     }
-    
-                    impl<'a> ArgminOp for OptimizedFunction<'a> {
+
+                    impl<'a> Gradient for OptimizedFunction<'a> {
                         type Param = Vec<f64>;
-                        type Output = f64;
-                        type Hessian = Vec<Vec<f64>>;
-                        type Jacobian = ();
-                        type Float = f64;
-                    
-                        fn apply(&self, x: &Self::Param) -> Result<Self::Output, Error> {
-                            if x.iter().any(|v| !v.is_finite()) {
-                                return Err(Error::msg("non-finite param"));
-                            }
-                            Ok(self.fs.loss_single(self.gyro_delay, &DVector::from_column_slice(x)))
-                        }
-                    
+                        type Gradient = Vec<f64>;
+
                         fn gradient(&self, w: &Self::Param) -> Result<Self::Param, Error> {
                             if w.iter().any(|v| !v.is_finite()) {
                                 return Err(Error::msg("non-finite param"));
@@ -300,23 +290,38 @@ impl<'a> SyncProblem<'a> {
                             let mut grad = DVector::from_element(0, 0.0);
                             let _cost = self.fs.loss(self.gyro_delay, &DVector::from_column_slice(w), &mut del_jac, &mut grad);
                             Ok(grad.as_slice().to_vec())
-                        }    
+                        }
                     }
-    
+                    impl<'a> CostFunction for OptimizedFunction<'a> {
+                        type Param = Vec<f64>;
+                        type Output = f64;
+
+                        fn cost(&self, x: &Self::Param) -> Result<Self::Output, Error> {
+                            if x.iter().any(|v| !v.is_finite()) {
+                                return Err(Error::msg("non-finite param"));
+                            }
+                            Ok(self.fs.loss_single(self.gyro_delay, &DVector::from_column_slice(x)))
+                        }
+                    }
+
                     let cost = OptimizedFunction { fs: &fs, gyro_delay };
                     let linesearch = BacktrackingLineSearch::new(ArmijoCondition::new(1e-4).unwrap()).rho(0.5).unwrap();
-    
+
                     let solver = LBFGS::new(linesearch, 10)
-                        .with_tol_grad(1e-4);
-    
-                    let executor = Executor::new(cost, solver, fs.motion_vec.as_slice().to_vec())
-                        .max_iters(200);
+                        .with_tolerance_grad(1e-4).unwrap();
+
+                    let executor = Executor::new(cost, solver)
+                        .configure(|state| state.param(fs.motion_vec.as_slice().to_vec()).max_iters(200));
 
                     match executor.run() {
                         Ok(res) => {
                             // dbg!(&res.state().best_param);
                             // dbg!(&res.state().best_cost);
-                            fs.motion_vec = DVector::from_column_slice(&res.state().best_param);
+                            if let Some(ref best_param) = res.state().best_param {
+                                fs.motion_vec = DVector::from_column_slice(&best_param);
+                            } else {
+                                log::error!("LBFGS error: bast_param is None");
+                            }
                         },
                         Err(e) => {
                             log::error!("LBFGS error: {:?}", e);
@@ -328,10 +333,12 @@ impl<'a> SyncProblem<'a> {
             // Optimize delay
             let info = {
                 let step = delay_optimizer.step(gyro_delay - delay_b * delay_v);
-    
+
                 delay_v = delay_b * delay_v + step;
                 gyro_delay += delay_v;
-    
+
+                use argmin_math::ArgminNorm;
+
                 DelayOptInfo { step_size: step.norm() }
             };
 
@@ -380,7 +387,7 @@ impl<'a> SyncProblem<'a> {
 
         for i in 0..point_count {
             let delay = initial_delay - search_radius + 2.0 * search_radius * i as f64 / (point_count as f64 - 1.0);
-            
+
             let cost: f64 = timestamps.par_iter().map(|ts| {
                 let p = opt_compute_problem(*ts, delay, &self.problem);
                 let m = opt_guess_translational_motion(&p, 20);
@@ -409,7 +416,7 @@ pub fn opt_compute_problem(timestamp_us: i64, gyro_delay: f64, data: &OptData) -
             let b = data.quats.eval(bt[i]).normalize();
             let ar = quat_rotate_point(&quat_conj(a), &ap[i]);
             let br = quat_rotate_point(&quat_conj(b), &bp[i]);
-            
+
             problem.set_row(i, &ar.cross(&br).transpose());
         }
 
