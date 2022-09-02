@@ -279,28 +279,28 @@ impl<'a> SyncProblem<'a> {
                     }
 
                     impl<'a> Gradient for OptimizedFunction<'a> {
-                        type Param = Vec<f64>;
-                        type Gradient = Vec<f64>;
+                        type Param = DVector<f64>;
+                        type Gradient = DVector<f64>;
 
-                        fn gradient(&self, w: &Self::Param) -> Result<Self::Param, Error> {
+                        fn gradient(&self, w: &Self::Param) -> Result<Self::Gradient, Error> {
                             if w.iter().any(|v| !v.is_finite()) {
                                 return Err(Error::msg("non-finite param"));
                             }
                             let mut del_jac = 0.0;
                             let mut grad = DVector::from_element(0, 0.0);
-                            let _cost = self.fs.loss(self.gyro_delay, &DVector::from_column_slice(w), &mut del_jac, &mut grad);
-                            Ok(grad.as_slice().to_vec())
+                            let _cost = self.fs.loss(self.gyro_delay, &w, &mut del_jac, &mut grad);
+                            Ok(grad)
                         }
                     }
                     impl<'a> CostFunction for OptimizedFunction<'a> {
-                        type Param = Vec<f64>;
+                        type Param = DVector<f64>;
                         type Output = f64;
 
                         fn cost(&self, x: &Self::Param) -> Result<Self::Output, Error> {
                             if x.iter().any(|v| !v.is_finite()) {
                                 return Err(Error::msg("non-finite param"));
                             }
-                            Ok(self.fs.loss_single(self.gyro_delay, &DVector::from_column_slice(x)))
+                            Ok(self.fs.loss_single(self.gyro_delay, &x))
                         }
                     }
 
@@ -311,14 +311,14 @@ impl<'a> SyncProblem<'a> {
                         .with_tolerance_grad(1e-4).unwrap();
 
                     let executor = Executor::new(cost, solver)
-                        .configure(|state| state.param(fs.motion_vec.as_slice().to_vec()).max_iters(200));
+                        .configure(|state| state.param(fs.motion_vec.clone()).max_iters(200));
 
                     match executor.run() {
                         Ok(res) => {
                             // dbg!(&res.state().best_param);
                             // dbg!(&res.state().best_cost);
                             if let Some(ref best_param) = res.state().best_param {
-                                fs.motion_vec = DVector::from_column_slice(&best_param);
+                                fs.motion_vec = best_param.clone();
                             } else {
                                 log::error!("LBFGS error: bast_param is None");
                             }
@@ -337,9 +337,9 @@ impl<'a> SyncProblem<'a> {
                 delay_v = delay_b * delay_v + step;
                 gyro_delay += delay_v;
 
-                use argmin_math::ArgminL2Norm;
+                use argmin_math::ArgminNorm;
 
-                DelayOptInfo { step_size: step.l2_norm() }
+                DelayOptInfo { step_size: step.norm() }
             };
 
             if info.step_size < 1e-4 {
