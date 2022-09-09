@@ -337,9 +337,9 @@ impl<'a> SyncProblem<'a> {
                 delay_v = delay_b * delay_v + step;
                 gyro_delay += delay_v;
 
-                use argmin_math::ArgminNorm;
+                use argmin_math::ArgminL2Norm;
 
-                DelayOptInfo { step_size: step.norm() }
+                DelayOptInfo { step_size: step.l2_norm() }
             };
 
             if info.step_size < 1e-4 {
