@@ -10,6 +10,6 @@ argmin = { version = "0.7.0", default-features = false }
 argmin-math = { version = "0.2.1", default-features = false, features = ["nalgebra_v0_31"] }
 superslice = "1.0.0"
 nalgebra = "0.31"
-rayon = "1.5.3"
+rayon = "1.6.0"
 rand = "0.8.5"
 log = "0.4.17"
