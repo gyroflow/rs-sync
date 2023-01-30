@@ -21,18 +21,18 @@ pub fn mtrand(min: usize, max: usize) -> usize {
     rng.sample(distr)
 }
 
-pub fn sqr_jac(x: &DVector<f64>) -> (DVector<f64>, SquareMatrix<f64, Dynamic, VecStorage<f64, Dynamic, Dynamic>>) {
+pub fn sqr_jac(x: &DVector<f64>) -> (DVector<f64>, SquareMatrix<f64, Dyn, VecStorage<f64, Dyn, Dyn>>) {
     (x.map(|v| v * v), SquareMatrix::from_diagonal(&(2.0 * x)))
 }
 
-pub fn sqrt_jac(mut x: DVector<f64>) -> (DVector<f64>, SquareMatrix<f64, Dynamic, VecStorage<f64, Dynamic, Dynamic>>) {
+pub fn sqrt_jac(mut x: DVector<f64>) -> (DVector<f64>, SquareMatrix<f64, Dyn, VecStorage<f64, Dyn, Dyn>>) {
     x.apply(|v| *v = v.sqrt());
     let diag = x.map(|v| 1.0 / (2.0 * v));
     (x, SquareMatrix::from_diagonal(&diag))
 }
 
-pub fn log1p_jac(x: DVector<f64>) -> (DVector<f64>, SquareMatrix<f64, Dynamic, VecStorage<f64, Dynamic, Dynamic>>) {
-    (x.map(|v| libm::log1p(v)), SquareMatrix::from_diagonal(&x.map(|v| 1.0 / (1.0 + v))))
+pub fn log1p_jac(x: DVector<f64>) -> (DVector<f64>, SquareMatrix<f64, Dyn, VecStorage<f64, Dyn, Dyn>>) {
+    (x.map(libm::log1p), SquareMatrix::from_diagonal(&x.map(|v| 1.0 / (1.0 + v))))
 }
 
 pub fn sum_jac(x: &DMatrix<f64>) -> (Matrix1xX<f64>, Matrix1xX<f64>) {

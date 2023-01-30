@@ -25,7 +25,7 @@ pub fn quat_to_aa(q: &Vector4<f64>) -> Vector3<f64> {
     let sin_squared_theta = xyz.dot(&xyz);
 
     if sin_squared_theta <= 0.0 {
-        return Vector3::from(xyz * 2.0);
+        return xyz * 2.0;
     }
 
     let sin_theta = sin_squared_theta.sqrt();

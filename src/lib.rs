@@ -55,7 +55,7 @@ impl<'a> FrameState<'a> {
     }
 
     pub fn loss(&self, gyro_delay: f64, motion_estimate: &DVector<f64>, jac_gyro_delay: &mut f64, jac_motion_estimate: &mut DVector<f64>) -> f64 {
-        let p = opt_compute_problem(self.timestamp_us, gyro_delay, &self.problem);
+        let p = opt_compute_problem(self.timestamp_us, gyro_delay, self.problem);
 
         let loss_l = self.loss_single(gyro_delay - NUMERIC_DIFF_STEP, motion_estimate);
         let loss_r = self.loss_single(gyro_delay + NUMERIC_DIFF_STEP, motion_estimate);
@@ -79,19 +79,19 @@ impl<'a> FrameState<'a> {
     }
 
     pub fn loss_single(&self, gyro_delay: f64, motion_estimate: &DVector<f64>) -> f64 {
-        let p = opt_compute_problem(self.timestamp_us, gyro_delay, &self.problem);
+        let p = opt_compute_problem(self.timestamp_us, gyro_delay, self.problem);
         let r = (p * motion_estimate) * (self.var_k / motion_estimate.norm());
         let rho = r.map(|v| libm::log1p(v * v));
         rho.sum()
     }
 
     pub fn guess_motion(&self, gyro_delay: f64) -> DVector<f64> {
-        let p = opt_compute_problem(self.timestamp_us, gyro_delay, &self.problem);
+        let p = opt_compute_problem(self.timestamp_us, gyro_delay, self.problem);
         opt_guess_translational_motion(&p, 200)
     }
 
     pub fn guess_k(&self, gyro_delay: f64) -> f64 {
-        let p = opt_compute_problem(self.timestamp_us, gyro_delay, &self.problem);
+        let p = opt_compute_problem(self.timestamp_us, gyro_delay, self.problem);
         assert!(p.nrows() > 0);
         assert!(self.motion_vec.nrows() == 3);
         clamp_k(1.0 / (p * &self.motion_vec).norm() * 1e2)
@@ -111,7 +111,7 @@ impl<'a> SyncProblem<'a> {
         self.progress_cb = Some(Box::new(cb));
     }
     pub fn set_gyro_quaternions_fixed(&mut self, data: &[(f64, f64, f64, f64)], sample_rate: f64, first_timestamp: f64) {
-        let flat_data = data.into_iter().flat_map(|x| [x.0, x.1, x.2, x.3]).collect::<Vec<f64>>();
+        let flat_data = data.iter().flat_map(|x| [x.0, x.1, x.2, x.3]).collect::<Vec<f64>>();
         self.problem.sample_rate = sample_rate;
         self.problem.quats_start = first_timestamp;
         self.problem.quats = NdSpline::make(&Matrix4xX::from_column_slice(&flat_data));
@@ -288,7 +288,7 @@ impl<'a> SyncProblem<'a> {
                             }
                             let mut del_jac = 0.0;
                             let mut grad = DVector::from_element(0, 0.0);
-                            let _cost = self.fs.loss(self.gyro_delay, &w, &mut del_jac, &mut grad);
+                            let _cost = self.fs.loss(self.gyro_delay, w, &mut del_jac, &mut grad);
                             Ok(grad)
                         }
                     }
@@ -300,11 +300,11 @@ impl<'a> SyncProblem<'a> {
                             if x.iter().any(|v| !v.is_finite()) {
                                 return Err(Error::msg("non-finite param"));
                             }
-                            Ok(self.fs.loss_single(self.gyro_delay, &x))
+                            Ok(self.fs.loss_single(self.gyro_delay, x))
                         }
                     }
 
-                    let cost = OptimizedFunction { fs: &fs, gyro_delay };
+                    let cost = OptimizedFunction { fs, gyro_delay };
                     let linesearch = BacktrackingLineSearch::new(ArmijoCondition::new(1e-4).unwrap()).rho(0.5).unwrap();
 
                     let solver = LBFGS::new(linesearch, 10)

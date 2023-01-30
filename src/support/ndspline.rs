@@ -40,8 +40,8 @@ impl NdSpline {
         ret
     }
     pub fn rderiv_numeric(&self, t: f64) -> Vector4<f64> {
-        let i_l = Vector4::from(self.eval(t).normalize());
-        let i_r = Vector4::from(self.eval(t + 1e-7).normalize());
+        let i_l = self.eval(t).normalize();
+        let i_r = self.eval(t + 1e-7).normalize();
         let mut ret = quat_prod(&quat_conj(i_l), &i_r) / 1e-7;
         ret[0] = 0.0;
         ret
