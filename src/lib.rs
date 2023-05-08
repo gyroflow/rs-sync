@@ -127,7 +127,7 @@ impl<'a> SyncProblem<'a> {
         const US_IN_SEC: i64 = 1000000;
         let count = timestamps_us.len();
 
-        let actual_sr_uhz = UHZ_IN_HZ * US_IN_SEC * count as i64 / (timestamps_us[count - 1] - timestamps_us[0]);
+        let actual_sr_uhz = UHZ_IN_HZ * US_IN_SEC * count as i64 / (timestamps_us[count - 1] - timestamps_us[0]).max(1);
         let rounded_sr_hz = ((actual_sr_uhz as f64 / 50.0 / UHZ_IN_HZ as f64).round() * 50.0) as i64;  // round to nearest 50hz
 
         if rounded_sr_hz <= 0 {
