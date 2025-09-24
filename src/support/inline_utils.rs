@@ -16,9 +16,11 @@ pub fn safe_normalize(m: Vector3<f64>) -> Vector3<f64> {
 }
 
 pub fn mtrand(min: usize, max: usize) -> usize {
-    let mut rng = thread_rng();
-    let distr = rand::distributions::Uniform::new_inclusive(min, max);
-    rng.sample(distr)
+    let mut rng = rand::rng();
+    rand::distr::Uniform::new_inclusive(min, max)
+        .map(|distr| rng.sample(distr))
+        .unwrap_or(min)
+
 }
 
 pub fn sqr_jac(x: &DVector<f64>) -> (DVector<f64>, SquareMatrix<f64, Dyn, VecStorage<f64, Dyn, Dyn>>) {

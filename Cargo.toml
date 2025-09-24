@@ -5,11 +5,11 @@ edition = "2021"
 authors = ["Vladimir Pinchuk"]
 
 [dependencies]
-libm = "0.2.11"
+libm = "0.2.15"
 argmin = { version = "0.10.0", git = "https://github.com/argmin-rs/argmin.git", default-features = false }
-argmin-math = { version = "0.4.0", git = "https://github.com/argmin-rs/argmin.git", default-features = false, features = ["nalgebra_v0_33"] }
+argmin-math = { version = "0.4.0", git = "https://github.com/argmin-rs/argmin.git", default-features = false, features = ["nalgebra_v0_34"] }
 superslice = "1.0.0"
-nalgebra = "0.33"
-rayon = "1.10.0"
-rand = "0.8.5"
+nalgebra = "0.34"
+rayon = "1.11.0"
+rand = "0.9.2"
 log = "0.4"
